@@ -52,6 +52,8 @@ type GameState =
   | 'PVP_PLAYING' 
   | 'PVP_VICTORY';
 
+type PvpDifficulty = 'EASY' | 'MEDIUM' | 'HARD' | 'MIXED';
+
 // --- Built-in Icons ---
 
 const IconWrapper: React.FC<IconWrapperProps> = ({ children, size = 24, className = "" }) => (
@@ -590,6 +592,11 @@ function App() {
   const [pvpP1Id, setPvpP1Id] = useState<string | null>(null);
   const [pvpP2Id, setPvpP2Id] = useState<string | null>(null);
   const [pickingFor, setPickingFor] = useState<'p1' | 'p2' | null>(null);
+  const [pvpDifficulty, setPvpDifficulty] = useState<PvpDifficulty>('MIXED');
+  
+  // PVP Level Selection
+  const [pvpMode, setPvpMode] = useState<'DIFFICULTY' | 'LEVEL'>('DIFFICULTY');
+  const [pvpLevelInput, setPvpLevelInput] = useState<string>('1');
 
   // Load Players from Storage on Mount
   useEffect(() => {
@@ -709,9 +716,44 @@ function App() {
     setPvpWinner(null);
     setIsRoundActive(true);
     
-    // Generate endless random words
-    const pvpWords = FULL_WORD_LIST.sort(() => 0.5 - Math.random()).slice(0, 50);
-    setWordList(pvpWords);
+    let pool: WordItem[] = [];
+
+    if (pvpMode === 'LEVEL') {
+        const targetLevel = parseInt(pvpLevelInput) || 1;
+        // Prioritize words from specific level
+        const levelWords = FULL_WORD_LIST.filter(w => w.level === targetLevel);
+        
+        // Ensure playable length by filling with general words if needed
+        let primarySet = levelWords;
+        if (primarySet.length < 5) {
+             const others = FULL_WORD_LIST.filter(w => w.level !== targetLevel).sort(() => 0.5 - Math.random()).slice(0, 10);
+             primarySet = [...primarySet, ...others];
+        }
+
+        // Expand/Loop to create a sufficient battle length (50 rounds)
+        while (pool.length < 50) {
+            pool = [...pool, ...primarySet];
+        }
+        pool = pool.sort(() => 0.5 - Math.random()).slice(0, 50);
+
+    } else {
+        // Preset Difficulty
+        let baseWords: WordItem[] = [];
+        if (pvpDifficulty === 'EASY') {
+           baseWords = FULL_WORD_LIST.filter(w => w.level <= 4);
+        } else if (pvpDifficulty === 'MEDIUM') {
+           baseWords = FULL_WORD_LIST.filter(w => w.level >= 5 && w.level <= 9);
+        } else if (pvpDifficulty === 'HARD') {
+           baseWords = FULL_WORD_LIST.filter(w => w.level >= 10);
+        } else {
+           baseWords = FULL_WORD_LIST;
+        }
+
+        if (baseWords.length === 0) baseWords = FULL_WORD_LIST; // Fallback
+        pool = baseWords.sort(() => 0.5 - Math.random()).slice(0, 50);
+    }
+
+    setWordList(pool);
     setCurrentWordIndex(0);
     
     setGameState('PVP_PLAYING');
@@ -727,10 +769,13 @@ function App() {
       if (currentWordIndex >= wordList.length) {
         if (isPlayingSingle) handleWin();
         else {
-           // PVP endless? Reshuffle if run out
-           const moreWords = FULL_WORD_LIST.sort(() => 0.5 - Math.random()).slice(0, 50);
-           setWordList(moreWords);
-           setCurrentWordIndex(0);
+           // PVP endless logic or finish logic.
+           // Currently if list runs out in PVP, maybe reshuffle?
+           // For now, let's just trigger a win for the person with higher HP or Draw?
+           // Or just extend the words list on the fly.
+           // Simplest: Extend list.
+           const moreWords = [...wordList].sort(() => 0.5 - Math.random());
+           setWordList(prev => [...prev, ...moreWords]);
         }
         return;
       }
@@ -1156,46 +1201,108 @@ function App() {
       const p1 = players.find(p => p.id === pvpP1Id);
       const p2 = players.find(p => p.id === pvpP2Id);
 
+      const difficulties: PvpDifficulty[] = ['EASY', 'MEDIUM', 'HARD', 'MIXED'];
+
       return (
         <div className="h-[100dvh] bg-sky-800 flex flex-col items-center justify-center p-4 relative overflow-hidden">
              {/* VS Background Text */}
              <div className="absolute text-[20rem] font-black text-white/5 select-none pointer-events-none">VS</div>
 
-             <div className="w-full max-w-lg z-10 flex flex-col gap-6">
-                 {/* P1 Card */}
-                 <div className="bg-amber-500 p-1 rounded-2xl shadow-xl transform rotate-1">
-                     <div className="bg-amber-600 p-2 rounded-t-xl text-center font-black text-amber-900 uppercase tracking-widest text-sm">Challenger 1</div>
-                     <button onClick={() => setPickingFor('p1')} className="w-full bg-white p-6 rounded-xl flex flex-col items-center active:bg-gray-50 transition-colors">
-                         <div className="text-7xl mb-2">{p1?.avatar || "?"}</div>
-                         <div className="text-2xl font-black text-gray-800">{p1?.name || "Select Player"}</div>
-                         <div className="text-sm font-bold text-gray-400 uppercase mt-1">Tap to Change</div>
-                     </button>
+             <div className="w-full max-w-lg z-10 flex flex-col gap-4">
+                 {/* Players Container */}
+                 <div className="flex gap-4 items-stretch h-40 sm:h-48">
+                    {/* P1 Card */}
+                    <div className="flex-1 bg-amber-500 p-1 rounded-2xl shadow-xl transform rotate-1">
+                        <div className="bg-amber-600 p-1 rounded-t-xl text-center font-black text-amber-900 uppercase tracking-widest text-[10px] sm:text-xs">Challenger 1</div>
+                        <button onClick={() => setPickingFor('p1')} className="w-full h-full bg-white p-2 rounded-xl flex flex-col items-center justify-center active:bg-gray-50 transition-colors pb-6">
+                            <div className="text-5xl sm:text-7xl mb-2">{p1?.avatar || "?"}</div>
+                            <div className="text-lg sm:text-xl font-black text-gray-800 truncate w-full px-2 text-center">{p1?.name || "Select"}</div>
+                            <div className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase mt-1">Tap to Change</div>
+                        </button>
+                    </div>
+
+                    {/* VS Text */}
+                    <div className="flex items-center justify-center">
+                        <div className="text-3xl sm:text-5xl font-black text-white italic drop-shadow-lg text-stroke">VS</div>
+                    </div>
+
+                    {/* P2 Card */}
+                    <div className="flex-1 bg-blue-500 p-1 rounded-2xl shadow-xl transform -rotate-1">
+                        <div className="bg-blue-600 p-1 rounded-t-xl text-center font-black text-blue-900 uppercase tracking-widest text-[10px] sm:text-xs">Challenger 2</div>
+                        <button onClick={() => setPickingFor('p2')} className="w-full h-full bg-white p-2 rounded-xl flex flex-col items-center justify-center active:bg-gray-50 transition-colors pb-6">
+                            <div className="text-5xl sm:text-7xl mb-2">{p2?.avatar || "?"}</div>
+                            <div className="text-lg sm:text-xl font-black text-gray-800 truncate w-full px-2 text-center">{p2?.name || "Select"}</div>
+                            <div className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase mt-1">Tap to Change</div>
+                        </button>
+                    </div>
                  </div>
 
-                 <div className="text-center">
-                     <div className="text-6xl font-black text-white italic drop-shadow-lg text-stroke">VS</div>
-                 </div>
+                 {/* Challenge Settings */}
+                 <div className="bg-black/30 backdrop-blur rounded-xl p-4 flex flex-col gap-3">
+                     
+                     {/* Preset Difficulty */}
+                     <div className="flex flex-col gap-1">
+                         <div className="text-white/60 text-[10px] font-bold uppercase tracking-widest">Option A: Difficulty Preset</div>
+                         <div className="flex gap-2">
+                             {difficulties.map(diff => (
+                                 <button
+                                    key={diff}
+                                    onClick={() => {
+                                        setPvpMode('DIFFICULTY');
+                                        setPvpDifficulty(diff);
+                                    }}
+                                    className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase transition-all
+                                       ${pvpMode === 'DIFFICULTY' && pvpDifficulty === diff 
+                                         ? 'bg-yellow-400 text-yellow-900 ring-2 ring-white scale-105' 
+                                         : 'bg-white/20 text-white hover:bg-white/30 opacity-70'}
+                                    `}
+                                 >
+                                    {diff}
+                                 </button>
+                             ))}
+                         </div>
+                     </div>
 
-                 {/* P2 Card */}
-                 <div className="bg-blue-500 p-1 rounded-2xl shadow-xl transform -rotate-1">
-                     <div className="bg-blue-600 p-2 rounded-t-xl text-center font-black text-blue-900 uppercase tracking-widest text-sm">Challenger 2</div>
-                     <button onClick={() => setPickingFor('p2')} className="w-full bg-white p-6 rounded-xl flex flex-col items-center active:bg-gray-50 transition-colors">
-                         <div className="text-7xl mb-2">{p2?.avatar || "?"}</div>
-                         <div className="text-2xl font-black text-gray-800">{p2?.name || "Select Player"}</div>
-                         <div className="text-sm font-bold text-gray-400 uppercase mt-1">Tap to Change</div>
-                     </button>
+                     <div className="flex items-center gap-2 text-white/30 text-xs font-bold uppercase">
+                        <div className="h-px bg-white/20 flex-1"></div>
+                        OR
+                        <div className="h-px bg-white/20 flex-1"></div>
+                     </div>
+
+                     {/* Specific Level Input */}
+                     <div className="flex flex-col gap-1">
+                        <div className="text-white/60 text-[10px] font-bold uppercase tracking-widest">Option B: Challenge Level (1-120)</div>
+                        <div 
+                          onClick={() => setPvpMode('LEVEL')}
+                          className={`flex items-center bg-white/20 rounded-lg p-2 transition-all ${pvpMode === 'LEVEL' ? 'ring-2 ring-white bg-white/30' : 'opacity-70'}`}
+                        >
+                            <span className="text-white text-sm font-bold ml-2 mr-4 uppercase">Level:</span>
+                            <input 
+                                type="number" 
+                                min="1" 
+                                max="120"
+                                value={pvpLevelInput}
+                                onChange={(e) => {
+                                    setPvpLevelInput(e.target.value);
+                                    setPvpMode('LEVEL');
+                                }}
+                                className="bg-transparent text-white font-black text-lg w-full focus:outline-none placeholder-white/30"
+                                placeholder="1-120"
+                            />
+                        </div>
+                     </div>
                  </div>
 
                  <Button 
                     onClick={startPvp} 
                     disabled={!p1 || !p2 || p1.id === p2.id}
-                    className="mt-4 py-4 text-xl shadow-2xl"
+                    className="mt-2 py-4 text-xl shadow-2xl"
                     variant={(!p1 || !p2 || p1.id === p2.id) ? "secondary" : "success"}
                  >
-                    {(!p1 || !p2) ? "Select Players" : (p1.id === p2.id ? "Select Different Players" : "FIGHT!")}
+                    {(!p1 || !p2) ? "Select Players" : (p1.id === p2.id ? "Same Player?" : "FIGHT!")}
                  </Button>
                  
-                 <button onClick={() => setGameState('MENU')} className="mt-2 text-white/60 font-bold uppercase text-sm">Cancel</button>
+                 <button onClick={() => setGameState('MENU')} className="mt-2 text-white/60 font-bold uppercase text-sm">Back to Menu</button>
              </div>
         </div>
       );
@@ -1394,7 +1501,7 @@ function App() {
              <ArrowLeft size={16}/>
            </button>
            
-           <div className="text-3xl sm:text-5xl font-black text-white uppercase tracking-widest drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">
+           <div className="text-3xl sm:text-5xl font-black text-white lowercase tracking-widest drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">
              {currentWord.word}
            </div>
            
