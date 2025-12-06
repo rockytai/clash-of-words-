@@ -29,7 +29,28 @@ interface WorldItem {
   textColor: string;
 }
 
-type GameState = 'SPLASH' | 'MENU' | 'WORLD_SELECT' | 'LEVEL_SELECT' | 'PLAYING' | 'VICTORY' | 'DEFEAT';
+interface PlayerProfile {
+  id: string;
+  name: string;
+  avatar: string;
+  maxLevel: number;
+  stars: Record<number, number>;
+  wins: number; // PVP wins
+}
+
+type GameState = 
+  | 'SPLASH' 
+  | 'PROFILE_SELECT' 
+  | 'PROFILE_CREATE' 
+  | 'MENU' 
+  | 'WORLD_SELECT' 
+  | 'LEVEL_SELECT' 
+  | 'PLAYING' 
+  | 'VICTORY' 
+  | 'DEFEAT' 
+  | 'PVP_SETUP' 
+  | 'PVP_PLAYING' 
+  | 'PVP_VICTORY';
 
 // --- Built-in Icons ---
 
@@ -134,7 +155,37 @@ const Lock: React.FC<IconProps> = (props) => (
   </IconWrapper>
 );
 
+const Users: React.FC<IconProps> = (props) => (
+  <IconWrapper {...props}>
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </IconWrapper>
+);
+
+const Plus: React.FC<IconProps> = (props) => (
+  <IconWrapper {...props}>
+    <line x1="12" y1="5" x2="12" y2="19" />
+    <line x1="5" y1="12" x2="19" y2="12" />
+  </IconWrapper>
+);
+
+const UserCheck: React.FC<IconProps> = (props) => (
+  <IconWrapper {...props}>
+    <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+    <circle cx="8.5" cy="7" r="4" />
+    <polyline points="17 11 19 13 23 9" />
+  </IconWrapper>
+);
+
 // --- Game Configuration & Data ---
+
+const AVATARS = [
+  "🤴", "👸", "🧙‍♂️", "🧙‍♀️", "🧚", "🧜‍♂️", "🧛‍♂️", "🧟", 
+  "🧞‍♂️", "🦸‍♂️", "🦹‍♀️", "🦊", "🦁", "🐼", "🤖", "👽",
+  "🐵", "🐶", "🐺", "🦄"
+];
 
 const FULL_WORD_LIST: WordItem[] = [
   // --- NUMBERS (Category: number) ---
@@ -393,15 +444,6 @@ const WORLDS: WorldItem[] = [
   }
 ];
 
-const CHARACTERS = {
-  player: {
-    name: "Barbarian King",
-    icon: (cls: string) => <Sword className={cls} />,
-    color: "bg-amber-500",
-    img: "🤴"
-  }
-};
-
 const LEVELS_PER_WORLD = 10;
 const QUESTIONS_PER_LEVEL = 10;
 const TOTAL_LEVELS = 120; // 12 Worlds * 10 Levels
@@ -471,14 +513,15 @@ interface ProgressBarProps {
   max: number;
   color: string;
   label: string;
+  className?: string;
 }
 
-const ProgressBar: React.FC<ProgressBarProps> = ({ current, max, color, label }) => {
+const ProgressBar: React.FC<ProgressBarProps> = ({ current, max, color, label, className="" }) => {
   const percent = Math.max(0, Math.min(100, (current / max) * 100));
   return (
-    <div className="w-full relative h-6 bg-gray-900 rounded-full border-2 border-gray-700 overflow-hidden shadow-lg">
+    <div className={`w-full relative h-6 bg-gray-900 rounded-full border-2 border-gray-700 overflow-hidden shadow-lg ${className}`}>
       <div 
-        className={`h-full transition-all duration-500 ease-out ${color}`} 
+        className={`h-full transition-all duration-300 ease-out ${color}`} 
         style={{ width: `${percent}%` }}
       />
       <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white shadow-black drop-shadow-md tracking-wider select-none">
@@ -502,7 +545,7 @@ const Card: React.FC<CardProps> = ({ children, className = "" }) => (
 interface ButtonProps {
   onClick: () => void;
   children: React.ReactNode;
-  variant?: "primary" | "danger" | "success" | "secondary";
+  variant?: "primary" | "danger" | "success" | "secondary" | "blue" | "outline";
   className?: string;
   disabled?: boolean;
 }
@@ -513,7 +556,9 @@ const Button: React.FC<ButtonProps> = ({ onClick, children, variant = "primary",
     primary: "bg-yellow-400 hover:bg-yellow-300 text-yellow-900 border-yellow-700",
     danger: "bg-red-500 hover:bg-red-400 text-white border-red-800",
     success: "bg-green-500 hover:bg-green-400 text-white border-green-800",
-    secondary: "bg-gray-200 hover:bg-gray-100 text-gray-700 border-gray-400"
+    secondary: "bg-gray-200 hover:bg-gray-100 text-gray-700 border-gray-400",
+    blue: "bg-blue-500 hover:bg-blue-400 text-white border-blue-800",
+    outline: "bg-transparent border-2 border-gray-400 text-gray-600 hover:bg-gray-50"
   };
 
   return (
@@ -530,16 +575,76 @@ const Button: React.FC<ButtonProps> = ({ onClick, children, variant = "primary",
 // --- Main Game Component ---
 
 function App() {
-  // Game States: 'SPLASH', 'MENU', 'WORLD_SELECT', 'LEVEL_SELECT', 'PLAYING', 'VICTORY', 'DEFEAT'
+  // Game States
   const [gameState, setGameState] = useState<GameState>('SPLASH');
   
+  // Players System
+  const [players, setPlayers] = useState<PlayerProfile[]>([]);
+  const [activePlayerId, setActivePlayerId] = useState<string | null>(null);
+  
+  // Profile Creation State
+  const [newPlayerName, setNewPlayerName] = useState("");
+  const [newPlayerAvatar, setNewPlayerAvatar] = useState(AVATARS[0]);
+
+  // PVP Setup State
+  const [pvpP1Id, setPvpP1Id] = useState<string | null>(null);
+  const [pvpP2Id, setPvpP2Id] = useState<string | null>(null);
+  const [pickingFor, setPickingFor] = useState<'p1' | 'p2' | null>(null);
+
+  // Load Players from Storage on Mount
+  useEffect(() => {
+    const stored = localStorage.getItem('cow_players');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setPlayers(parsed);
+        if (parsed.length > 0) {
+          // Check for last active player
+          const lastActive = localStorage.getItem('cow_last_active');
+          if (lastActive && parsed.find((p: PlayerProfile) => p.id === lastActive)) {
+            setActivePlayerId(lastActive);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load players", e);
+      }
+    }
+  }, []);
+
+  const savePlayers = (updatedPlayers: PlayerProfile[]) => {
+    setPlayers(updatedPlayers);
+    localStorage.setItem('cow_players', JSON.stringify(updatedPlayers));
+  };
+
+  const createProfile = () => {
+    if (!newPlayerName.trim()) return;
+    const newPlayer: PlayerProfile = {
+      id: Date.now().toString(),
+      name: newPlayerName.trim(),
+      avatar: newPlayerAvatar,
+      maxLevel: 1,
+      stars: {},
+      wins: 0
+    };
+    const updated = [...players, newPlayer];
+    savePlayers(updated);
+    setActivePlayerId(newPlayer.id);
+    localStorage.setItem('cow_last_active', newPlayer.id);
+    setGameState('MENU');
+    setNewPlayerName("");
+    setNewPlayerAvatar(AVATARS[0]);
+  };
+
+  // Helper to get active player object
+  const activePlayer = players.find(p => p.id === activePlayerId);
+  const maxUnlockedLevel = activePlayer?.maxLevel || 1;
+  const levelStars = activePlayer?.stars || {};
+
   // Progress State
   const [selectedWorld, setSelectedWorld] = useState(1);
-  const [currentLevel, setCurrentLevel] = useState(1); // Global Level 1-120
-  const [maxUnlockedLevel, setMaxUnlockedLevel] = useState(1); // Linear progress tracker
-  const [levelStars, setLevelStars] = useState<Record<number, number>>({}); // Map: { levelId: starsCount }
+  const [currentLevel, setCurrentLevel] = useState(1);
   
-  // Battle State
+  // Battle State (Single Player)
   const [playerHp, setPlayerHp] = useState(100);
   const [enemyHp, setEnemyHp] = useState(100);
   const [enemyMaxHp, setEnemyMaxHp] = useState(100);
@@ -550,14 +655,19 @@ function App() {
   const [shakeScreen, setShakeScreen] = useState(false);
   const [attackAnim, setAttackAnim] = useState<'player' | 'enemy' | null>(null);
   
+  // PVP State
+  const [pvpPlayer1Hp, setPvpPlayer1Hp] = useState(100);
+  const [pvpPlayer2Hp, setPvpPlayer2Hp] = useState(100);
+  const [pvpWinner, setPvpWinner] = useState<1 | 2 | null>(null);
+  const [isRoundActive, setIsRoundActive] = useState(true);
+
   // Scoring State
   const [mistakesInLevel, setMistakesInLevel] = useState(0);
 
-  // Initialize Level Data
+  // Initialize Level Data (Single Player)
   const startLevel = (globalLevel: number) => {
     AudioEngine.init();
     
-    // Logic to select words.
     let levelWords = FULL_WORD_LIST.filter(w => w.level === globalLevel);
     
     // Fallback fill
@@ -572,13 +682,12 @@ function App() {
     
     setWordList(levelWords);
     setCurrentWordIndex(0);
-    setMistakesInLevel(0); // Reset mistakes
+    setMistakesInLevel(0); 
     
     // Setup Enemy based on World
     const worldId = Math.ceil(globalLevel / LEVELS_PER_WORLD);
     const worldConfig = WORLDS.find(w => w.id === worldId) || WORLDS[0];
     
-    // Enemy stats scale
     const levelInWorld = (globalLevel - 1) % LEVELS_PER_WORLD; 
     const hp = worldConfig.hp + (levelInWorld * 5); 
     
@@ -591,11 +700,38 @@ function App() {
     setMessage("");
   };
 
-  // Generate Current Question
+  // Initialize PVP Match
+  const startPvp = () => {
+    if (!pvpP1Id || !pvpP2Id) return; // Should be handled by UI
+    AudioEngine.init();
+    setPvpPlayer1Hp(100);
+    setPvpPlayer2Hp(100);
+    setPvpWinner(null);
+    setIsRoundActive(true);
+    
+    // Generate endless random words
+    const pvpWords = FULL_WORD_LIST.sort(() => 0.5 - Math.random()).slice(0, 50);
+    setWordList(pvpWords);
+    setCurrentWordIndex(0);
+    
+    setGameState('PVP_PLAYING');
+    setMessage("");
+  };
+
+  // Generate Current Question Effect
   useEffect(() => {
-    if (gameState === 'PLAYING' && wordList.length > 0) {
+    const isPlayingSingle = gameState === 'PLAYING';
+    const isPlayingPvp = gameState === 'PVP_PLAYING';
+    
+    if ((isPlayingSingle || isPlayingPvp) && wordList.length > 0) {
       if (currentWordIndex >= wordList.length) {
-        handleWin();
+        if (isPlayingSingle) handleWin();
+        else {
+           // PVP endless? Reshuffle if run out
+           const moreWords = FULL_WORD_LIST.sort(() => 0.5 - Math.random()).slice(0, 50);
+           setWordList(moreWords);
+           setCurrentWordIndex(0);
+        }
         return;
       }
       generateOptions();
@@ -606,11 +742,10 @@ function App() {
     }
   }, [currentWordIndex, gameState, wordList]);
 
-  // OPTIMIZED OPTION GENERATION
+  // Option Generation
   const generateOptions = () => {
     const currentWord = wordList[currentWordIndex];
     
-    // Strategy: Prefer words from the SAME category
     let categoryDistractors = FULL_WORD_LIST.filter(w => 
       w.category === currentWord.category && 
       w.word !== currentWord.word
@@ -662,16 +797,9 @@ function App() {
       setShakeScreen(true);
       setAttackAnim('enemy');
       
-      // Update mistakes
       const newMistakes = mistakesInLevel + 1;
       setMistakesInLevel(newMistakes);
       
-      // Damage calculation: 
-      // 0 mistakes = 100 HP
-      // 1 mistake = 66 HP
-      // 2 mistakes = 33 HP
-      // 3 mistakes = 0 HP (Dead)
-      // Damage should be roughly 34 per hit.
       const damage = 34; 
       
       setPlayerHp(prev => {
@@ -685,45 +813,129 @@ function App() {
         setShakeScreen(false);
         setAttackAnim(null);
         
-        // Check death condition immediately after animation
         if (playerHp - damage <= 0) {
           handleLose();
         } else {
-          // If still alive, refresh options
           generateOptions();
         }
       }, 800);
     }
   };
 
+  const handlePvpAnswer = (player: 1 | 2, selectedWord: WordItem) => {
+    if (!isRoundActive) return;
+
+    const target = wordList[currentWordIndex];
+
+    if (selectedWord.word === target.word) {
+      // CORRECT
+      setIsRoundActive(false);
+      AudioEngine.playAttack();
+      
+      // Damage opponent
+      const damage = 15;
+      if (player === 1) {
+        setPvpPlayer2Hp(prev => Math.max(0, prev - damage));
+        setAttackAnim('player'); // P1 attacks
+      } else {
+        setPvpPlayer1Hp(prev => Math.max(0, prev - damage));
+        setAttackAnim('enemy'); // P2 (Top) attacks
+      }
+
+      setTimeout(() => {
+        setAttackAnim(null);
+        // Check win condition
+        if ((player === 1 && pvpPlayer2Hp - damage <= 0) || (player === 2 && pvpPlayer1Hp - damage <= 0)) {
+           setPvpWinner(player);
+           // Update win stats
+           const winnerId = player === 1 ? pvpP1Id : pvpP2Id;
+           const updatedPlayers = players.map(p => {
+             if (p.id === winnerId) return { ...p, wins: (p.wins || 0) + 1 };
+             return p;
+           });
+           savePlayers(updatedPlayers);
+           
+           setGameState('PVP_VICTORY');
+           AudioEngine.playWin();
+        } else {
+           setCurrentWordIndex(prev => prev + 1);
+           setIsRoundActive(true);
+        }
+      }, 800);
+
+    } else {
+      // WRONG - Penalty
+      AudioEngine.playDamage();
+      const penalty = 5;
+      if (player === 1) {
+        setPvpPlayer1Hp(prev => Math.max(0, prev - penalty));
+      } else {
+        setPvpPlayer2Hp(prev => Math.max(0, prev - penalty));
+      }
+      
+      // Check self-KO
+      if ((player === 1 && pvpPlayer1Hp - penalty <= 0)) {
+        setPvpWinner(2);
+        // P2 wins
+        const winnerId = pvpP2Id;
+        const updatedPlayers = players.map(p => {
+           if (p.id === winnerId) return { ...p, wins: (p.wins || 0) + 1 };
+           return p;
+        });
+        savePlayers(updatedPlayers);
+        
+        setGameState('PVP_VICTORY');
+        AudioEngine.playWin();
+      } else if ((player === 2 && pvpPlayer2Hp - penalty <= 0)) {
+        setPvpWinner(1);
+        // P1 wins
+        const winnerId = pvpP1Id;
+        const updatedPlayers = players.map(p => {
+           if (p.id === winnerId) return { ...p, wins: (p.wins || 0) + 1 };
+           return p;
+        });
+        savePlayers(updatedPlayers);
+
+        setGameState('PVP_VICTORY');
+        AudioEngine.playWin();
+      }
+    }
+  };
+
   const handleWin = () => {
     AudioEngine.playWin();
     
-    // Calculate Stars based on mistakes
-    // 0 mistakes = 3 stars
-    // 1 mistake = 2 stars
-    // 2 mistakes = 1 star
-    // >2 mistakes = 0 stars (Fail) - though player HP logic handles the fail case earlier
     let stars = 0;
     if (mistakesInLevel === 0) stars = 3;
     else if (mistakesInLevel === 1) stars = 2;
     else if (mistakesInLevel === 2) stars = 1;
-    else stars = 0; // Should be handled by death, but safe guard.
+    else stars = 0; 
 
-    // Save stars if better than previous
-    const currentBest = levelStars[currentLevel] || 0;
-    if (stars > currentBest) {
-        setLevelStars(prev => ({...prev, [currentLevel]: stars}));
+    // Update Player Stats
+    if (activePlayer && activePlayerId) {
+        const currentBest = activePlayer.stars[currentLevel] || 0;
+        let newStars = activePlayer.stars;
+        
+        if (stars > currentBest) {
+            newStars = { ...activePlayer.stars, [currentLevel]: stars };
+        }
+        
+        let newMaxLevel = activePlayer.maxLevel;
+        if (stars >= 1) {
+            if (currentLevel === activePlayer.maxLevel && currentLevel < TOTAL_LEVELS) {
+                newMaxLevel = currentLevel + 1;
+            }
+        }
+        
+        const updatedPlayers = players.map(p => 
+           p.id === activePlayerId 
+             ? { ...p, stars: newStars, maxLevel: newMaxLevel } 
+             : p
+        );
+        savePlayers(updatedPlayers);
     }
 
     setGameState('VICTORY');
-    
-    // Only unlock next if passed (>= 1 star) AND at the edge of progress
-    if (stars >= 1) {
-        if (currentLevel === maxUnlockedLevel && currentLevel < TOTAL_LEVELS) {
-            setMaxUnlockedLevel(currentLevel + 1);
-        }
-    }
   };
 
   const handleLose = () => {
@@ -733,7 +945,7 @@ function App() {
 
   // --- Render Functions ---
   
-  // 0. SPLASH SCREEN
+  // 0. SPLASH SCREEN & PLAYER ROUTING
   if (gameState === 'SPLASH') {
       return (
           <div className="h-[100dvh] w-full bg-amber-500 flex flex-col items-center justify-center animate-fadeIn select-none overflow-hidden">
@@ -750,7 +962,11 @@ function App() {
                   <div className="h-full bg-white animate-[width_2s_ease-out_forwards]" style={{width: '0%'}}></div>
               </div>
               <button 
-                onClick={() => setGameState('MENU')}
+                onClick={() => {
+                   if (players.length === 0) setGameState('PROFILE_CREATE');
+                   else if (!activePlayerId) setGameState('PROFILE_SELECT');
+                   else setGameState('MENU');
+                }}
                 className="mt-12 text-white/80 uppercase font-bold text-sm animate-pulse"
               >
                 Tap to Start
@@ -759,11 +975,110 @@ function App() {
       );
   }
 
+  // 0.1 PROFILE SELECTION
+  if (gameState === 'PROFILE_SELECT') {
+      return (
+        <div className="h-[100dvh] bg-sky-100 flex flex-col items-center p-4">
+             <h2 className="text-3xl font-black text-sky-900 mt-8 mb-2">WHO IS PLAYING?</h2>
+             <p className="text-sky-600 font-bold mb-8">Select your hero profile</p>
+             
+             <div className="grid grid-cols-2 gap-4 w-full max-w-lg overflow-y-auto pb-20 px-2">
+                {players.map(p => (
+                  <button 
+                    key={p.id}
+                    onClick={() => {
+                        setActivePlayerId(p.id);
+                        localStorage.setItem('cow_last_active', p.id);
+                        setGameState('MENU');
+                    }}
+                    className="bg-white p-4 rounded-xl border-b-4 border-gray-300 active:border-b-0 active:translate-y-1 transition-all flex flex-col items-center shadow-lg"
+                  >
+                     <div className="text-6xl mb-2">{p.avatar}</div>
+                     <div className="font-black text-xl text-gray-800 truncate w-full">{p.name}</div>
+                     <div className="text-xs font-bold text-gray-400 mt-1 uppercase">Lvl {p.maxLevel} • {Object.keys(p.stars).length} Stars</div>
+                  </button>
+                ))}
+                
+                <button 
+                  onClick={() => setGameState('PROFILE_CREATE')}
+                  className="bg-sky-200 border-2 border-dashed border-sky-400 p-4 rounded-xl flex flex-col items-center justify-center text-sky-500 hover:bg-sky-200 transition-colors min-h-[160px]"
+                >
+                   <Plus size={48} className="mb-2" />
+                   <span className="font-bold uppercase">New Hero</span>
+                </button>
+             </div>
+        </div>
+      );
+  }
+
+  // 0.2 PROFILE CREATION
+  if (gameState === 'PROFILE_CREATE') {
+      return (
+        <div className="h-[100dvh] bg-amber-50 flex flex-col items-center p-4 pt-12">
+           <Card className="w-full max-w-md p-6 bg-white">
+              <h2 className="text-2xl font-black text-amber-900 mb-6 text-center">CREATE HERO</h2>
+              
+              <div className="mb-6">
+                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Hero Name</label>
+                 <input 
+                   type="text" 
+                   value={newPlayerName}
+                   onChange={(e) => setNewPlayerName(e.target.value.slice(0, 12))}
+                   placeholder="Enter Name..."
+                   className="w-full text-2xl font-black p-3 bg-gray-100 rounded-lg border-2 border-gray-200 focus:border-amber-400 focus:outline-none text-center"
+                 />
+              </div>
+
+              <div className="mb-8">
+                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2 text-center">Choose Avatar</label>
+                 <div className="grid grid-cols-5 gap-2">
+                    {AVATARS.map(av => (
+                       <button
+                         key={av}
+                         onClick={() => setNewPlayerAvatar(av)}
+                         className={`text-3xl p-2 rounded-lg transition-transform hover:scale-110 ${newPlayerAvatar === av ? 'bg-amber-200 ring-2 ring-amber-400 scale-110' : 'bg-gray-50'}`}
+                       >
+                         {av}
+                       </button>
+                    ))}
+                 </div>
+              </div>
+
+              <div className="flex gap-2">
+                  {players.length > 0 && (
+                      <Button onClick={() => setGameState('PROFILE_SELECT')} variant="secondary" className="flex-1">
+                          Cancel
+                      </Button>
+                  )}
+                  <Button onClick={createProfile} disabled={!newPlayerName.trim()} className="flex-1">
+                      Start Adventure
+                  </Button>
+              </div>
+           </Card>
+        </div>
+      );
+  }
+
   // 1. MENU
   if (gameState === 'MENU') {
     return (
-      <div className="h-[100dvh] bg-sky-400 font-sans flex items-center justify-center p-4 overflow-hidden select-none">
-        <Card className="max-w-md w-full p-6 sm:p-8 text-center border-amber-900 bg-orange-100 flex flex-col h-full sm:h-auto justify-center">
+      <div className="h-[100dvh] bg-sky-400 font-sans flex items-center justify-center p-4 overflow-hidden select-none relative">
+        
+        {/* Top Bar: Current Player */}
+        <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-start z-10 pointer-events-none">
+           <div className="pointer-events-auto bg-white/90 backdrop-blur px-3 py-2 rounded-xl shadow-lg border-b-4 border-gray-200 flex items-center gap-3">
+              <div className="text-3xl">{activePlayer?.avatar}</div>
+              <div>
+                  <div className="text-xs text-gray-500 font-bold uppercase">Playing As</div>
+                  <div className="font-black text-gray-800 leading-none">{activePlayer?.name}</div>
+              </div>
+              <button onClick={() => setGameState('PROFILE_SELECT')} className="ml-2 p-1.5 bg-gray-100 rounded-lg text-gray-600 hover:bg-gray-200">
+                  <RefreshCcw size={16} />
+              </button>
+           </div>
+        </div>
+
+        <Card className="max-w-md w-full p-6 sm:p-8 text-center border-amber-900 bg-orange-100 flex flex-col h-full sm:h-auto justify-center mt-12">
           <div className="mb-6 flex justify-center">
             <div className="w-28 h-28 bg-amber-400 rounded-3xl border-4 border-amber-700 flex items-center justify-center text-6xl shadow-xl transform -rotate-3 hover:rotate-0 transition-transform duration-300">
               ⚔️
@@ -776,7 +1091,17 @@ function App() {
           
           <div className="space-y-4">
             <Button onClick={() => setGameState('WORLD_SELECT')} className="w-full text-xl py-4 shadow-xl">
-              START BATTLE
+              ADVENTURE (1P)
+            </Button>
+            <Button onClick={() => {
+                // Default P1 to active player if possible, else first in list
+                setPvpP1Id(activePlayerId || players[0]?.id);
+                // Default P2 to someone else if possible
+                const other = players.find(p => p.id !== activePlayerId);
+                setPvpP2Id(other?.id || players[0]?.id);
+                setGameState('PVP_SETUP');
+            }} variant="blue" className="w-full text-xl py-4 shadow-xl flex items-center justify-center gap-2">
+              <Users size={24} /> VERSUS DUEL (2P)
             </Button>
             <div className="text-sm text-amber-700 mt-4 font-bold">
               12 WORLDS • 120 LEVELS
@@ -786,6 +1111,96 @@ function App() {
       </div>
     );
   }
+
+  // 1.1 PVP SETUP
+  if (gameState === 'PVP_SETUP') {
+      // If picking a player for a slot
+      if (pickingFor) {
+          return (
+            <div className="h-[100dvh] bg-sky-900 flex flex-col p-4">
+               <div className="flex justify-between items-center mb-6 text-white">
+                  <h2 className="text-2xl font-black uppercase">Select {pickingFor === 'p1' ? 'Player 1' : 'Player 2'}</h2>
+                  <button onClick={() => setPickingFor(null)} className="p-2 bg-white/20 rounded-full"><ArrowLeft /></button>
+               </div>
+               <div className="grid grid-cols-2 gap-4 overflow-y-auto">
+                   {players.map(p => (
+                       <button 
+                         key={p.id}
+                         onClick={() => {
+                             if (pickingFor === 'p1') setPvpP1Id(p.id);
+                             else setPvpP2Id(p.id);
+                             setPickingFor(null);
+                         }}
+                         className={`p-4 rounded-xl flex flex-col items-center bg-white border-b-4 border-gray-300 ${(pvpP1Id === p.id || pvpP2Id === p.id) ? 'opacity-50 ring-4 ring-red-500' : ''}`}
+                       >
+                           <div className="text-5xl mb-2">{p.avatar}</div>
+                           <div className="font-bold text-gray-800">{p.name}</div>
+                           <div className="text-xs text-gray-500 font-bold uppercase mt-1">Wins: {p.wins || 0}</div>
+                       </button>
+                   ))}
+                   <button 
+                      onClick={() => {
+                          setGameState('PROFILE_CREATE');
+                          setPickingFor(null); 
+                      }}
+                      className="bg-white/10 border-2 border-dashed border-white/30 text-white rounded-xl flex flex-col items-center justify-center min-h-[140px]"
+                   >
+                       <Plus size={32} />
+                       <span className="font-bold mt-2">New</span>
+                   </button>
+               </div>
+            </div>
+          )
+      }
+
+      const p1 = players.find(p => p.id === pvpP1Id);
+      const p2 = players.find(p => p.id === pvpP2Id);
+
+      return (
+        <div className="h-[100dvh] bg-sky-800 flex flex-col items-center justify-center p-4 relative overflow-hidden">
+             {/* VS Background Text */}
+             <div className="absolute text-[20rem] font-black text-white/5 select-none pointer-events-none">VS</div>
+
+             <div className="w-full max-w-lg z-10 flex flex-col gap-6">
+                 {/* P1 Card */}
+                 <div className="bg-amber-500 p-1 rounded-2xl shadow-xl transform rotate-1">
+                     <div className="bg-amber-600 p-2 rounded-t-xl text-center font-black text-amber-900 uppercase tracking-widest text-sm">Challenger 1</div>
+                     <button onClick={() => setPickingFor('p1')} className="w-full bg-white p-6 rounded-xl flex flex-col items-center active:bg-gray-50 transition-colors">
+                         <div className="text-7xl mb-2">{p1?.avatar || "?"}</div>
+                         <div className="text-2xl font-black text-gray-800">{p1?.name || "Select Player"}</div>
+                         <div className="text-sm font-bold text-gray-400 uppercase mt-1">Tap to Change</div>
+                     </button>
+                 </div>
+
+                 <div className="text-center">
+                     <div className="text-6xl font-black text-white italic drop-shadow-lg text-stroke">VS</div>
+                 </div>
+
+                 {/* P2 Card */}
+                 <div className="bg-blue-500 p-1 rounded-2xl shadow-xl transform -rotate-1">
+                     <div className="bg-blue-600 p-2 rounded-t-xl text-center font-black text-blue-900 uppercase tracking-widest text-sm">Challenger 2</div>
+                     <button onClick={() => setPickingFor('p2')} className="w-full bg-white p-6 rounded-xl flex flex-col items-center active:bg-gray-50 transition-colors">
+                         <div className="text-7xl mb-2">{p2?.avatar || "?"}</div>
+                         <div className="text-2xl font-black text-gray-800">{p2?.name || "Select Player"}</div>
+                         <div className="text-sm font-bold text-gray-400 uppercase mt-1">Tap to Change</div>
+                     </button>
+                 </div>
+
+                 <Button 
+                    onClick={startPvp} 
+                    disabled={!p1 || !p2 || p1.id === p2.id}
+                    className="mt-4 py-4 text-xl shadow-2xl"
+                    variant={(!p1 || !p2 || p1.id === p2.id) ? "secondary" : "success"}
+                 >
+                    {(!p1 || !p2) ? "Select Players" : (p1.id === p2.id ? "Select Different Players" : "FIGHT!")}
+                 </Button>
+                 
+                 <button onClick={() => setGameState('MENU')} className="mt-2 text-white/60 font-bold uppercase text-sm">Cancel</button>
+             </div>
+        </div>
+      );
+  }
+
 
   // 2. WORLD SELECT
   if (gameState === 'WORLD_SELECT') {
@@ -928,7 +1343,134 @@ function App() {
     );
   }
 
-  // 4. GAMEPLAY / BATTLE
+  // 4. PVP GAMEPLAY
+  if (gameState === 'PVP_PLAYING') {
+    const currentWord = wordList[currentWordIndex] || { word: '...', meaning: '...' };
+    const p1 = players.find(p => p.id === pvpP1Id);
+    const p2 = players.find(p => p.id === pvpP2Id);
+
+    return (
+      <div className="h-[100dvh] bg-gray-800 flex flex-col overflow-hidden select-none">
+        
+        {/* PLAYER 2 (TOP, ROTATED) */}
+        <div className="flex-1 bg-blue-600 relative rotate-180 flex flex-col p-4 border-t-8 border-blue-800">
+           <div className="flex justify-between items-center mb-2">
+              <div className="flex items-center gap-2 text-white">
+                <div className="bg-blue-800 p-2 rounded-lg text-2xl">{p2?.avatar}</div>
+                <span className="font-bold">{p2?.name}</span>
+              </div>
+              <div className="w-1/2">
+                 <ProgressBar current={pvpPlayer2Hp} max={100} color="bg-blue-300" label="HP" className="border-blue-900 bg-blue-900"/>
+              </div>
+           </div>
+           
+           {/* P2 Buttons */}
+           <div className="grid grid-cols-2 gap-3 flex-1">
+             {options.map((opt, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handlePvpAnswer(2, opt)}
+                  className="bg-blue-100 border-b-4 border-blue-300 rounded-xl text-blue-900 font-black text-2xl active:scale-95 active:bg-blue-200 transition-transform touch-manipulation flex items-center justify-center"
+                >
+                  {opt.meaning}
+                </button>
+             ))}
+           </div>
+           
+           {/* P2 Damage FX */}
+           {attackAnim === 'enemy' && (
+              <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+                 <div className="text-6xl animate-bounce">⚔️</div>
+              </div>
+           )}
+        </div>
+
+        {/* CENTER ARENA (WORD) */}
+        <div className="h-24 bg-gray-900 flex items-center justify-center relative z-10 border-y-4 border-gray-700 shadow-2xl">
+           <button 
+             onClick={() => setGameState('PVP_SETUP')}
+             className="absolute left-4 bg-gray-700 p-2 rounded text-white"
+           >
+             <ArrowLeft size={16}/>
+           </button>
+           
+           <div className="text-3xl sm:text-5xl font-black text-white uppercase tracking-widest drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">
+             {currentWord.word}
+           </div>
+           
+           <button 
+              onClick={() => AudioEngine.speak(currentWord.word)}
+              className="absolute right-4 bg-gray-700 p-2 rounded text-white"
+           >
+              <Volume2 size={20} />
+           </button>
+        </div>
+
+        {/* PLAYER 1 (BOTTOM) */}
+        <div className="flex-1 bg-amber-600 relative flex flex-col p-4 border-b-8 border-amber-800">
+           {/* P1 Damage FX */}
+           {attackAnim === 'player' && (
+              <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none mb-20">
+                 <div className="text-6xl animate-bounce">⚔️</div>
+              </div>
+           )}
+        
+           <div className="flex justify-between items-center mb-2">
+              <div className="flex items-center gap-2 text-white">
+                <div className="bg-amber-800 p-2 rounded-lg text-2xl">{p1?.avatar}</div>
+                <span className="font-bold">{p1?.name}</span>
+              </div>
+              <div className="w-1/2">
+                 <ProgressBar current={pvpPlayer1Hp} max={100} color="bg-amber-300" label="HP" className="border-amber-900 bg-amber-900"/>
+              </div>
+           </div>
+           
+           {/* P1 Buttons */}
+           <div className="grid grid-cols-2 gap-3 flex-1">
+             {options.map((opt, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handlePvpAnswer(1, opt)}
+                  className="bg-amber-100 border-b-4 border-amber-300 rounded-xl text-amber-900 font-black text-2xl active:scale-95 active:bg-amber-200 transition-transform touch-manipulation flex items-center justify-center"
+                >
+                  {opt.meaning}
+                </button>
+             ))}
+           </div>
+        </div>
+
+      </div>
+    );
+  }
+
+  // 5. PVP VICTORY SCREEN
+  if (gameState === 'PVP_VICTORY') {
+    const winnerName = pvpWinner === 1 
+        ? players.find(p => p.id === pvpP1Id)?.name 
+        : players.find(p => p.id === pvpP2Id)?.name;
+        
+    return (
+      <div className={`h-[100dvh] flex flex-col items-center justify-center p-8 select-none ${pvpWinner === 1 ? 'bg-amber-600' : 'bg-blue-600'}`}>
+         <Card className="w-full max-w-sm p-8 text-center bg-white border-gray-900">
+            <div className="text-8xl mb-6 animate-bounce">🏆</div>
+            <h1 className="text-4xl font-black mb-2 uppercase text-gray-900">
+              {winnerName} WINS!
+            </h1>
+            <p className="text-gray-500 font-bold mb-8">Victory achieved</p>
+            <div className="space-y-4">
+              <Button onClick={() => startPvp()} variant="success" className="w-full">
+                REMATCH
+              </Button>
+              <Button onClick={() => setGameState('PVP_SETUP')} variant="secondary" className="w-full">
+                CHANGE FIGHTERS
+              </Button>
+            </div>
+         </Card>
+      </div>
+    );
+  }
+
+  // 6. SINGLE PLAYER GAMEPLAY
   const currentWorldConfig = WORLDS.find(w => w.id === Math.ceil(currentLevel / LEVELS_PER_WORLD)) || WORLDS[0];
   const currentWord = wordList[currentWordIndex] || { word: '...', meaning: '...' };
 
@@ -970,13 +1512,13 @@ function App() {
         {/* Background Texture */}
         <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, #fff 10%, transparent 10%)', backgroundSize: '20px 20px' }}></div>
 
-        {/* Player (Barbarian King) */}
+        {/* Player (Custom Avatar) */}
         <div className={`relative flex flex-col items-center transition-transform duration-200 ${attackAnim === 'player' ? 'translate-x-12 sm:translate-x-40 scale-110 z-20' : ''}`}>
           <div className="w-24 sm:w-32 mb-1 sm:mb-2">
-            <ProgressBar current={playerHp} max={100} color="bg-amber-400" label="KING" />
+            <ProgressBar current={playerHp} max={100} color="bg-amber-400" label={activePlayer?.name || "HERO"} />
           </div>
-          <div className={`w-20 h-20 sm:w-36 sm:h-36 ${CHARACTERS.player.color} border-4 border-amber-800 rounded-3xl flex items-center justify-center text-5xl sm:text-7xl shadow-2xl relative transform rotate-2`}>
-             <span className="drop-shadow-lg">{CHARACTERS.player.img}</span>
+          <div className={`w-20 h-20 sm:w-36 sm:h-36 bg-amber-500 border-4 border-amber-800 rounded-3xl flex items-center justify-center text-5xl sm:text-7xl shadow-2xl relative transform rotate-2`}>
+             <span className="drop-shadow-lg">{activePlayer?.avatar || "🤴"}</span>
              {attackAnim === 'enemy' && (
                 <div className="absolute inset-0 flex items-center justify-center animate-ping text-red-600 font-black text-4xl sm:text-5xl z-50">POW!</div>
              )}
